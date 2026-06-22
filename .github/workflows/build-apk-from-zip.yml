@@ -13,6 +13,7 @@ jobs:
         run: |
           ZIP_FILE=$(ls *.zip | head -n 1)
           echo "Using zip: $ZIP_FILE"
+          rm -rf appsrc fixedsrc
           mkdir appsrc
           unzip "$ZIP_FILE" -d appsrc
           FOUND_PACKAGE=$(find appsrc -name package.json | head -n 1)
@@ -40,12 +41,20 @@ jobs:
       - name: Add Android
         run: |
           cd appsrc
+          rm -rf android
           npx cap add android
 
-      - name: Copy web files
+      - name: Sync Android
         run: |
           cd appsrc
-          npx cap copy android
+          npx cap sync android
+
+      - name: Patch missing Capacitor Gradle file
+        run: |
+          cd appsrc
+          if [ ! -f android/capacitor.settings.gradle ]; then
+            echo "// Empty fallback for Capacitor settings" > android/capacitor.settings.gradle
+          fi
 
       - name: Build APK
         run: |
