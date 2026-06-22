@@ -1,80 +1,161 @@
-name: Build APK From Zip
+name: Build APK From Recovered Zip
 
 on: [workflow_dispatch, push]
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+build:
+runs-on: ubuntu-latest
 
-    steps:
-      - uses: actions/checkout@v4
+steps:
+  - name: Checkout repo
+    uses: actions/checkout@v4
 
-      - name: Unzip source
-        run: |
-          ZIP_FILE="QuestForge5E_BOOT_FIXED_SINGLE_ZIP.zip"
-          echo "Using zip: $ZIP_FILE"
-          rm -rf appsrc fixedsrc
-          mkdir appsrc
-          unzip "$ZIP_FILE" -d appsrc
-          FOUND_PACKAGE=$(find appsrc -name package.json | head -n 1)
-          APP_DIR=$(dirname "$FOUND_PACKAGE")
-          echo "App folder: $APP_DIR"
-          mkdir fixedsrc
-          cp -R "$APP_DIR"/. fixedsrc/
-          rm -rf appsrc
-          mv fixedsrc appsrc
+  - name: Unzip recovered working app
+    run: |
+      ZIP_FILE="QuestForge5E_RECOVERED_WORKING_BASE_SINGLE_ZIP.zip"
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
+      if [ ! -f "$ZIP_FILE" ]; then
+        echo "Could not find $ZIP_FILE in repo root."
+        echo "Files in repo:"
+        ls -la
+        exit 1
+      fi
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
+      rm -rf raw appsrc
+      mkdir raw
+      unzip "$ZIP_FILE" -d raw
 
-      - name: Prepare web assets
-        run: |
-          cd appsrc
-          rm -rf www
-          mkdir www
-          cp index.html www/index.html
-          cp manifest.json www/manifest.json
-          cp sw.js www/sw.js
-          cp icon.svg www/icon.svg
-          cat > capacitor.config.json <<'EOF'
-          {
-            "appId": "com.questforge5e.lootlegends",
-            "appName": "QuestForge5E",
-            "webDir": "www",
-            "server": { "androidScheme": "https" }
-          }
-          EOF
+      echo "Files found inside zip:"
+      find raw -maxdepth 4 -type f | head -100
 
-      - name: Install dependencies
-        run: |
-          cd appsrc
-          npm install
+      FOUND_PACKAGE=$(find raw -name package.json | head -n 1)
 
-      - name: Add Android
-        run: |
-          cd appsrc
-          rm -rf android
-          npx cap add android
+      if [ -n "$FOUND_PACKAGE" ]; then
+        APP_DIR=$(dirname "$FOUND_PACKAGE")
+        echo "Found existing Capacitor project at: $APP_DIR"
+        mkdir appsrc
+        cp -R "$APP_DIR"/. appsrc/
+      else
+        FOUND_INDEX=$(find raw -path "*/assets/www/index.html" -o -path "*/www/index.html" -o -name index.html | head -n 1)
 
-      - name: Sync Android
-        run: |
-          cd appsrc
-          npx cap sync android
+        if [ -z "$FOUND_INDEX" ]; then
+          echo "Could not find index.html inside recovered zip."
+          exit 1
+        fi
 
-      - name: Build APK
-        run: |
-          cd appsrc/android
-          chmod +x ./gradlew
-          ./gradlew assembleDebug
+        WEB_DIR=$(dirname "$FOUND_INDEX")
+        echo "Found web app at: $WEB_DIR"
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: QuestForge5E-debug-apk
-          path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
+        mkdir -p appsrc/www
+        cp -R "$WEB_DIR"/. appsrc/www/
+
+        cat > appsrc/package.json <<'EOF'
+      {
+        "name": "questforge5e-recovered-working-base",
+        "version": "1.0.0",
+        "private": true,
+        "dependencies": {
+          "@capacitor/android": "6.2.0",
+          "@capacitor/cli": "6.2.0",
+          "@capacitor/core": "6.2.0"
+        }
+      }
+      EOF
+
+        cat > appsrc/capacitor.config.json <<'EOF'
+      {
+        "appId": "com.questforge5e.lootlegends",
+        "appName": "QuestForge5E",
+        "webDir": "www",
+        "server": {
+          "androidScheme": "https"
+        }
+      }
+      EOF
+      fi
+
+      echo "Final app source:"
+      find appsrc -maxdepth 3 -type f | head -100
+
+  - name: Set up Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: 17
+
+  - name: Set up Node
+    uses: actions/setup-node@v4
+    with:
+      node-version: 20
+
+  - name: Force stable Capacitor package versions
+    run: |
+      cd appsrc
+      node -e "
+      const fs=require('fs');
+      const p=JSON.parse(fs.readFileSync('package.json','utf8'));
+      p.dependencies=p.dependencies||{};
+      p.dependencies['@capacitor/android']='6.2.0';
+      p.dependencies['@capacitor/cli']='6.2.0';
+      p.dependencies['@capacitor/core']='6.2.0';
+      fs.writeFileSync('package.json', JSON.stringify(p,null,2));
+      "
+
+  - name: Install dependencies
+    run: |
+      cd appsrc
+      npm install
+
+  - name: Make sure webDir exists
+    run: |
+      cd appsrc
+
+      if [ ! -f capacitor.config.json ]; then
+        cat > capacitor.config.json <<'EOF'
+      {
+        "appId": "com.questforge5e.lootlegends",
+        "appName": "QuestForge5E",
+        "webDir": "www",
+        "server": {
+          "androidScheme": "https"
+        }
+      }
+      EOF
+      fi
+
+      WEB_DIR=$(node -e "const c=require('./capacitor.config.json'); console.log(c.webDir || 'www')")
+      echo "Capacitor webDir is: $WEB_DIR"
+
+      if [ ! -f "$WEB_DIR/index.html" ]; then
+        FOUND_INDEX=$(find . -name index.html | head -n 1)
+        if [ -z "$FOUND_INDEX" ]; then
+          echo "No index.html found."
+          exit 1
+        fi
+
+        mkdir -p "$WEB_DIR"
+        cp -R "$(dirname "$FOUND_INDEX")"/. "$WEB_DIR"/
+      fi
+
+  - name: Add Android platform
+    run: |
+      cd appsrc
+      rm -rf android
+      npx cap add android
+
+  - name: Sync Android
+    run: |
+      cd appsrc
+      npx cap sync android
+
+  - name: Build debug APK
+    run: |
+      cd appsrc/android
+      chmod +x ./gradlew
+      ./gradlew assembleDebug
+
+  - name: Upload APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: QuestForge5E-recovered-working-apk
+      path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
