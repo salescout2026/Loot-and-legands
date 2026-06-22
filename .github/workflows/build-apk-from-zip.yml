@@ -1,0 +1,57 @@
+name: Build APK From Zip
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Unzip QuestForge source
+        run: |
+          mkdir appsrc
+          unzip QuestForge5E_PHONE_UPLOAD_NO_FOLDERS.zip -d appsrc
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          cd appsrc
+          npm install
+
+      - name: Add Android platform
+        run: |
+          cd appsrc
+          npx cap add android
+
+      - name: Copy web app to Android
+        run: |
+          cd appsrc
+          npx cap copy android
+
+      - name: Build debug APK
+        run: |
+          cd appsrc/android
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestForge5E-debug-apk
+          path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
