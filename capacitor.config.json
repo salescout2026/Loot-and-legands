@@ -1,8 +1,0 @@
-{
-  "appId": "com.questforge5e.lootlegends",
-  "appName": "QuestForge5E",
-  "webDir": ".",
-  "server": {
-    "androidScheme": "https"
-  }
-}
