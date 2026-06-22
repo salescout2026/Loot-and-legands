@@ -1,95 +1,60 @@
 name: Build APK From Zip
 
-on:
-workflow_dispatch:
-push:
-branches:
-- main
+on: [workflow_dispatch, push]
 
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Checkout repo
-    uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  - name: Show repo files
-    run: |
-      echo "Files in repo:"
-      ls -la
+      - name: Unzip source
+        run: |
+          ZIP_FILE=$(ls *.zip | head -n 1)
+          echo "Using zip: $ZIP_FILE"
+          mkdir appsrc
+          unzip "$ZIP_FILE" -d appsrc
+          FOUND_PACKAGE=$(find appsrc -name package.json | head -n 1)
+          APP_DIR=$(dirname "$FOUND_PACKAGE")
+          echo "App folder: $APP_DIR"
+          mkdir fixedsrc
+          cp -R "$APP_DIR"/. fixedsrc/
+          rm -rf appsrc
+          mv fixedsrc appsrc
 
-  - name: Find and unzip QuestForge source
-    run: |
-      ZIP_FILE=$(ls *.zip | head -n 1)
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
 
-      if [ -z "$ZIP_FILE" ]; then
-        echo "No zip file found in repo root."
-        exit 1
-      fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      echo "Found zip file: $ZIP_FILE"
+      - name: Install dependencies
+        run: |
+          cd appsrc
+          npm install
 
-      rm -rf appsrc
-      mkdir appsrc
-      unzip "$ZIP_FILE" -d appsrc
+      - name: Add Android
+        run: |
+          cd appsrc
+          npx cap add android
 
-      echo "Files after unzip:"
-      find appsrc -maxdepth 3 -type f
+      - name: Copy web files
+        run: |
+          cd appsrc
+          npx cap copy android
 
-      if [ ! -f appsrc/package.json ]; then
-        FOUND_PACKAGE=$(find appsrc -name package.json | head -n 1)
-        if [ -z "$FOUND_PACKAGE" ]; then
-          echo "No package.json found after unzip."
-          exit 1
-        fi
+      - name: Build APK
+        run: |
+          cd appsrc/android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
 
-        APP_DIR=$(dirname "$FOUND_PACKAGE")
-        echo "Detected app folder: $APP_DIR"
-
-        mkdir fixedsrc
-        cp -R "$APP_DIR"/. fixedsrc/
-        rm -rf appsrc
-        mv fixedsrc appsrc
-      fi
-
-      echo "Final app source:"
-      ls -la appsrc
-
-  - name: Set up Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: 17
-
-  - name: Set up Node
-    uses: actions/setup-node@v4
-    with:
-      node-version: 20
-
-  - name: Install dependencies
-    run: |
-      cd appsrc
-      npm install
-
-  - name: Add Android platform
-    run: |
-      cd appsrc
-      npx cap add android
-
-  - name: Copy web app to Android
-    run: |
-      cd appsrc
-      npx cap copy android
-
-  - name: Build debug APK
-    run: |
-      cd appsrc/android
-      chmod +x ./gradlew
-      ./gradlew assembleDebug
-
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: QuestForge5E-debug-apk
-      path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestForge5E-debug-apk
+          path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
