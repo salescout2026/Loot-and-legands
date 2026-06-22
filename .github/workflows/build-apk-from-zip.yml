@@ -38,6 +38,26 @@ jobs:
           cd appsrc
           npm install
 
+      - name: Prepare web assets
+        run: |
+          cd appsrc
+          rm -rf www
+          mkdir www
+          cp index.html www/index.html
+          cp manifest.json www/manifest.json
+          cp sw.js www/sw.js
+          cp icon.svg www/icon.svg
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.questforge5e.lootlegends",
+            "appName": "QuestForge5E",
+            "webDir": "www",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
+
       - name: Add Android
         run: |
           cd appsrc
@@ -48,13 +68,6 @@ jobs:
         run: |
           cd appsrc
           npx cap sync android
-
-      - name: Patch missing Capacitor Gradle file
-        run: |
-          cd appsrc
-          if [ ! -f android/capacitor.settings.gradle ]; then
-            echo "// Empty fallback for Capacitor settings" > android/capacitor.settings.gradle
-          fi
 
       - name: Build APK
         run: |
