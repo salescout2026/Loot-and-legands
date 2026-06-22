@@ -1,0 +1,13 @@
+{
+  "name": "QuestForge5E: Loot & Legends",
+  "short_name": "QuestForge5E",
+  "description": "A handcrafted solo 5E-inspired fantasy adventure on the Shattered Coast.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#17100b",
+  "theme_color": "#2a1b12",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

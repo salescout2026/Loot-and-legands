@@ -1,0 +1,19 @@
+{
+  "name": "questforge5e-loot-legends",
+  "version": "1.1.0",
+  "private": true,
+  "description": "QuestForge5E Loot & Legends handcrafted adventure PWA/Android wrapper source.",
+  "scripts": {
+    "serve": "python3 -m http.server 8899",
+    "cap:init": "npx cap init QuestForge5E com.questforge5e.lootlegends --web-dir .",
+    "cap:add:android": "npx cap add android",
+    "cap:copy": "npx cap copy android",
+    "android:debug": "cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "latest",
+    "@capacitor/cli": "latest",
+    "@capacitor/core": "latest"
+  },
+  "devDependencies": {}
+}
