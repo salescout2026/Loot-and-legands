@@ -1,0 +1,89 @@
+name: Build APK From Recovered Zip
+
+on: [workflow_dispatch, push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unzip recovered app
+        run: |
+          ZIP_FILE="QuestForge5E_RECOVERED_WORKING_BASE_SINGLE_ZIP.zip"
+          rm -rf raw appsrc
+          mkdir raw appsrc
+          unzip "$ZIP_FILE" -d raw
+
+          FOUND_WWW=$(find raw -path "*/assets/www/index.html" -o -path "*/www/index.html" | head -n 1)
+
+          if [ -z "$FOUND_WWW" ]; then
+            echo "Could not find working web app inside zip."
+            find raw -maxdepth 5 -type f
+            exit 1
+          fi
+
+          WEB_DIR=$(dirname "$FOUND_WWW")
+          mkdir -p appsrc/www
+          cp -R "$WEB_DIR"/. appsrc/www/
+
+          cat > appsrc/package.json <<'EOF'
+          {
+            "name": "questforge5e-recovered",
+            "version": "1.0.0",
+            "private": true,
+            "dependencies": {
+              "@capacitor/android": "6.2.0",
+              "@capacitor/cli": "6.2.0",
+              "@capacitor/core": "6.2.0"
+            }
+          }
+          EOF
+
+          cat > appsrc/capacitor.config.json <<'EOF'
+          {
+            "appId": "com.questforge5e.lootlegends",
+            "appName": "QuestForge5E",
+            "webDir": "www",
+            "server": {
+              "androidScheme": "https"
+            }
+          }
+          EOF
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          cd appsrc
+          npm install
+
+      - name: Add Android platform
+        run: |
+          cd appsrc
+          rm -rf android
+          npx cap add android
+
+      - name: Sync Android
+        run: |
+          cd appsrc
+          npx cap sync android
+
+      - name: Build debug APK
+        run: |
+          cd appsrc/android
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: QuestForge5E-recovered-working-apk
+          path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
