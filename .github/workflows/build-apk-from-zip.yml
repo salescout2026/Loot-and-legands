@@ -1,89 +1,76 @@
-name: Build APK From Recovered Zip
+name: build
 
-on: [workflow_dispatch, push]
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Unzip recovered app
+      - name: Find project ZIP
         run: |
-          ZIP_FILE="QuestForge5E_RECOVERED_WORKING_BASE_SINGLE_ZIP.zip"
-          rm -rf raw appsrc
-          mkdir raw appsrc
-          unzip "$ZIP_FILE" -d raw
-
-          FOUND_WWW=$(find raw -path "*/assets/www/index.html" -o -path "*/www/index.html" | head -n 1)
-
-          if [ -z "$FOUND_WWW" ]; then
-            echo "Could not find working web app inside zip."
-            find raw -maxdepth 5 -type f
+          ZIP_FILE=$(find . -maxdepth 1 -iname "*.zip" | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "No ZIP file found in repo root"
             exit 1
           fi
+          echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
+          echo "Using ZIP: $ZIP_FILE"
 
-          WEB_DIR=$(dirname "$FOUND_WWW")
-          mkdir -p appsrc/www
-          cp -R "$WEB_DIR"/. appsrc/www/
+      - name: Unzip project
+        run: |
+          mkdir -p app
+          unzip -o "$ZIP_FILE" -d app
+          echo "Unzipped contents:"
+          find app -maxdepth 3 -type f | head -n 50
 
-          cat > appsrc/package.json <<'EOF'
-          {
-            "name": "questforge5e-recovered",
-            "version": "1.0.0",
-            "private": true,
-            "dependencies": {
-              "@capacitor/android": "6.2.0",
-              "@capacitor/cli": "6.2.0",
-              "@capacitor/core": "6.2.0"
-            }
-          }
-          EOF
+      - name: Locate package.json
+        run: |
+          PACKAGE_DIR=$(find app -name package.json -type f | head -n 1 | xargs dirname)
+          if [ -z "$PACKAGE_DIR" ]; then
+            echo "No package.json found after unzip"
+            exit 1
+          fi
+          echo "PACKAGE_DIR=$PACKAGE_DIR" >> $GITHUB_ENV
+          echo "Package dir: $PACKAGE_DIR"
 
-          cat > appsrc/capacitor.config.json <<'EOF'
-          {
-            "appId": "com.questforge5e.lootlegends",
-            "appName": "QuestForge5E",
-            "webDir": "www",
-            "server": {
-              "androidScheme": "https"
-            }
-          }
-          EOF
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ env.PACKAGE_DIR }}/package-lock.json
 
-      - uses: actions/setup-java@v4
+      - name: Install dependencies
+        run: npm install
+        working-directory: ${{ env.PACKAGE_DIR }}
+
+      - name: Add Android platform
+        run: npx cap add android || true
+        working-directory: ${{ env.PACKAGE_DIR }}
+
+      - name: Sync Android
+        run: npx cap sync android
+        working-directory: ${{ env.PACKAGE_DIR }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install dependencies
-        run: |
-          cd appsrc
-          npm install
-
-      - name: Add Android platform
-        run: |
-          cd appsrc
-          rm -rf android
-          npx cap add android
-
-      - name: Sync Android
-        run: |
-          cd appsrc
-          npx cap sync android
-
       - name: Build debug APK
-        run: |
-          cd appsrc/android
-          chmod +x ./gradlew
-          ./gradlew assembleDebug
+        run: ./gradlew assembleDebug
+        working-directory: ${{ env.PACKAGE_DIR }}/android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: QuestForge5E-recovered-working-apk
-          path: appsrc/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Loot-and-Legends-debug-apk
+          path: ${{ env.PACKAGE_DIR }}/android/app/build/outputs/apk/debug/*.apk
