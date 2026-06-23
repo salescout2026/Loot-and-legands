@@ -1,61 +1,62 @@
-name: build
+name: Build Android APK from ZIP
 
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
+    paths:
+      - "*.zip"
+      - ".github/workflows/build-apk.yml"
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find project ZIP
+      - name: Find ZIP in repository root
+        shell: bash
         run: |
-          ZIP_FILE=$(find . -maxdepth 1 -iname "*.zip" | head -n 1)
-          if [ -z "$ZIP_FILE" ]; then
-            echo "No ZIP file found in repo root"
+          set -euo pipefail
+          ZIP_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 1 -type f -iname "*.zip" | sort | head -n 1)
+          if [ -z "${ZIP_FILE:-}" ]; then
+            echo "No ZIP file found in the repository root."
+            echo "Upload the project ZIP to the repo root, then run the workflow again."
             exit 1
           fi
-          echo "ZIP_FILE=$ZIP_FILE" >> $GITHUB_ENV
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
           echo "Using ZIP: $ZIP_FILE"
 
       - name: Unzip project
+        shell: bash
         run: |
-          mkdir -p app
-          unzip -o "$ZIP_FILE" -d app
-          echo "Unzipped contents:"
-          find app -maxdepth 3 -type f | head -n 50
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/project"
+          mkdir -p "$RUNNER_TEMP/project"
+          unzip -q -o "$ZIP_FILE" -d "$RUNNER_TEMP/project"
+          echo "Top-level extracted contents:"
+          find "$RUNNER_TEMP/project" -maxdepth 2 -type f | sed "s#$RUNNER_TEMP/project/##" | head -n 80
 
-      - name: Locate package.json
+      - name: Locate project folder
+        shell: bash
         run: |
-          PACKAGE_DIR=$(find app -name package.json -type f | head -n 1 | xargs dirname)
-          if [ -z "$PACKAGE_DIR" ]; then
-            echo "No package.json found after unzip"
+          set -euo pipefail
+          PACKAGE_JSON=$(find "$RUNNER_TEMP/project" -name package.json -type f | sort | head -n 1)
+          if [ -z "${PACKAGE_JSON:-}" ]; then
+            echo "No package.json found inside ZIP."
+            echo "The ZIP must contain the app project, not another unrelated archive."
             exit 1
           fi
-          echo "PACKAGE_DIR=$PACKAGE_DIR" >> $GITHUB_ENV
-          echo "Package dir: $PACKAGE_DIR"
+          PROJECT_DIR=$(dirname "$PACKAGE_JSON")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project folder: $PROJECT_DIR"
 
-     - name: Setup Node
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
-
-      - name: Install dependencies
-        run: npm install
-        working-directory: ${{ env.PACKAGE_DIR }}
-
-      - name: Add Android platform
-        run: npx cap add android || true
-        working-directory: ${{ env.PACKAGE_DIR }}
-
-      - name: Sync Android
-        run: npx cap sync android
-        working-directory: ${{ env.PACKAGE_DIR }}
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -63,12 +64,43 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug
-        working-directory: ${{ env.PACKAGE_DIR }}/android
+      - name: Install dependencies
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
-      - name: Upload APK
+      - name: Ensure Android platform exists
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          set -euo pipefail
+          if [ ! -d android ]; then
+            npx cap add android
+          else
+            echo "Android folder already exists."
+          fi
+
+      - name: Sync Capacitor Android
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: npx cap sync android
+
+      - name: Build debug APK
+        shell: bash
+        working-directory: ${{ env.PROJECT_DIR }}/android
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Loot-and-Legends-debug-apk
-          path: ${{ env.PACKAGE_DIR }}/android/app/build/outputs/apk/debug/*.apk
+          path: ${{ env.PROJECT_DIR }}/android/app/build/outputs/apk/debug/*.apk
